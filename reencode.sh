@@ -18,7 +18,7 @@ if ! command -v ffmpeg &> /dev/null || ! command -v ffprobe &> /dev/null; then
 fi
 
 # Configuration
-MAX_JOBS=2  # NVIDIA consumer GPUs support 2 simultaneous NVENC sessions
+MAX_JOBS=4  # NVIDIA consumer GPUs support 2 simultaneous NVENC sessions
 AUDIO_BITRATE=640k
 PRESET="p6"
 USE_TWO_PASS=false
