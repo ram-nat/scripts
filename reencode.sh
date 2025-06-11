@@ -27,6 +27,7 @@ INPUT_FILES=()
 # Semaphore setup using mktemp
 SEMAPHORE_DIR=$(mktemp -d -p "${TMPDIR:-/tmp}" reencode_semaphore.XXXXXXXXXX) || exit 1
 SEMAPHORE_FIFO="${SEMAPHORE_DIR}/control.fifo"
+SHUTTING_DOWN_FLAG_FILE="${SEMAPHORE_DIR}/shutting_down"
 
 # Initialize semaphore
 init_semaphore() {
@@ -46,7 +47,11 @@ init_semaphore() {
 # Acquire semaphore token
 acquire_token() {
     local token
-    read token <&3
+    # -r: do not allow backslashes to escape any characters
+    if ! read -r token <&3; then
+        return 1 # Failure (e.g., FIFO closed during shutdown)
+    fi
+    return 0 # Success
 }
 
 # Release semaphore token
@@ -56,15 +61,33 @@ release_token() {
 
 # Cleanup function
 cleanup() {
-    exec 3>&-
-    rm -rf "$SEMAPHORE_DIR"
-    jobs -p | xargs -r kill 2>/dev/null
-    wait 2>/dev/null
-    exit ${1:-0}
-}
+    local exit_code=${1:-0} # Default to 0 if no argument from trap
 
-# Set up cleanup trap
-trap 'cleanup 1' INT TERM EXIT
+    # 1. Signal intent to shut down by creating a flag file.
+    # Done early so sub-processes can see it.
+    if [[ -d "$SEMAPHORE_DIR" ]]; then # Check if SEMAPHORE_DIR was successfully created
+        touch "${SHUTTING_DOWN_FLAG_FILE}" 2>/dev/null
+    fi
+
+    # 2. Close the master file descriptor for the FIFO in the parent shell.
+    # This will cause 'read <&3' in children to receive EOF if they are waiting.
+    exec 3>&-
+
+    # 3. If called due to a signal (argument $1 is non-empty, e.g., 1 from trap), terminate child processes.
+    if [[ -n "$1" ]]; then # Indicates called from INT/TERM trap
+        printf "\n⚠️ Signal received. Terminating running jobs... " >&2
+        jobs -p | xargs -r kill 2>/dev/null # Send TERM signal to background job PIDs
+        wait 2>/dev/null # Wait for them to terminate
+        printf "Done.\n" >&2
+    fi
+
+    # 4. Remove the semaphore directory (which includes the FIFO and the flag file)
+    rm -rf "$SEMAPHORE_DIR"
+    exit "$exit_code"
+}
+# Set up cleanup trap - exit with exit code 0 on normal exit, 1 on error
+trap 'cleanup' EXIT
+trap 'cleanup 1' INT TERM
 
 # Parse arguments (same as original)
 while [[ $# -gt 0 ]]; do
@@ -109,21 +132,43 @@ if [[ ${#expanded_files[@]} -eq 0 ]]; then
     exit 1
 fi
 
+echo "Will process all these files: ${expanded_files[@]}"
+
 # Function to process a single file with semaphore control
 process_file() {
     local input_file="$1"
     local output_file="${input_file:r}_normalized.mkv"
     local json_stats
-    
-    # Acquire semaphore token
-    acquire_token
-    
+
+    # Check shutdown flag before attempting to acquire token
+    if [[ -f "$SHUTTING_DOWN_FLAG_FILE" ]]; then
+        printf "Skipping %s (queued): Shutdown signaled.\n" "$input_file" >&2
+        return 1
+    fi
+
+    if ! acquire_token; then
+        # acquire_token failed, likely due to FIFO closure during shutdown.
+        printf "Skipping %s: Token acquisition failed (likely shutdown).\n" "$input_file" >&2
+        return 1
+    fi
+
+    # Double-check shutdown flag after acquiring token, as signal could arrive while waiting
+    if [[ -f "$SHUTTING_DOWN_FLAG_FILE" ]]; then
+        printf "Skipping %s: Shutdown signaled after token acquisition.\n" "$input_file" >&2
+        release_token # Release the acquired token as we are not proceeding
+        return 1
+    fi
+
+    # Print processing status, \r to allow ffmpeg stats to overwrite
+    printf "⚙️ Processing: %s\r" "$input_file"
+
+
     # Detect video properties for color metadata handling
     local hdr_params=()
     local probed_info
     probed_info=$(ffprobe -v error -select_streams v:0 \
         -show_entries stream=color_transfer,stream=pix_fmt,stream=color_primaries,stream=colorspace \
-        -of default=nw=1:nk=1 "${input_file}")
+        -of default=nw=1:nk=1 "${input_file}" 2>/dev/null)
 
     # Read ffprobe output line by line into an array
     # Order: color_transfer, pix_fmt, color_primaries, colorspace
@@ -190,8 +235,8 @@ process_file() {
     fi
 
     # Encoding command - stderr preserved for stats visibility
-    ffmpeg -nostdin -loglevel error -stats -hide_banner -y \
-        -c:v hevc_cuvid -i "${input_file}" \
+    ffmpeg -nostdin -loglevel error -hide_banner -y \
+        -hwaccel cuvid -c:v hevc_cuvid -i "${input_file}" \
         < /dev/null \
         -map 0:v:0 -map 0:a:0 -map 0:a:0 -map '0:s?' \
         -c:v hevc_nvenc \
@@ -205,25 +250,31 @@ process_file() {
         -c:s copy \
         -metadata:s:a:1 title="Normalized Audio" \
         "${output_file}"
-    
+    local ffmpeg_exit_code=$?
+
     # Release semaphore token when job completes
     release_token
-    echo "Completed: ${input_file}"
-}
 
+    # Clear the "Processing..." line before printing final status
+    printf "\r\033[K"
+    if [[ $ffmpeg_exit_code -eq 0 ]]; then
+        printf "✅ Completed: %s\n" "$input_file"
+    elif [[ -f "$SHUTTING_DOWN_FLAG_FILE" ]]; then # Check if failure was due to shutdown
+        printf "⏹️ Interrupted: %s\n" "$input_file" >&2
+    else
+        printf "❌ Failed: %s (ffmpeg exit code: %s)\n" "$input_file" "$ffmpeg_exit_code" >&2
+    fi
+    return $ffmpeg_exit_code
+}
 # Initialize semaphore
 init_semaphore
 
 # Process files in parallel
 for input_file in "${expanded_files[@]}"; do
-    echo "Starting: ${input_file}"
+    printf "➕ Queued: %s\n" "$input_file"
     (process_file "$input_file") &
 done
 
 # Wait for all jobs to complete
 wait
-echo "All conversions completed!"
-
-# Clean up (trap will handle this)
-exec 3>&-
-trap - INT TERM EXIT
+printf "🎉 All conversions completed!\n"
