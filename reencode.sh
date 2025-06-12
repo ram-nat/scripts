@@ -236,7 +236,7 @@ process_file() {
 
     # Encoding command - stderr preserved for stats visibility
     ffmpeg -nostdin -loglevel error -hide_banner -y \
-        -hwaccel cuvid -c:v hevc_cuvid -i "${input_file}" \
+        -hwaccel nvdec -i "${input_file}" \
         < /dev/null \
         -map 0:v:0 -map 0:a:0 -map 0:a:0 -map '0:s?' \
         -c:v hevc_nvenc \
