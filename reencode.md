@@ -83,28 +83,28 @@ This file, reencode.sh, is a comprehensive Bash script designed to batch re-enco
                         |  Printer     |
                         +--------------+
 ```
-How it works:
 
-Main Script
+**How it works:**
 
-Launches multiple ffmpeg jobs in parallel (up to MAX_JOBS).
-For each input file, creates a named FIFO (progress.XYZ) for ffmpeg's progress output.
-ffmpeg Jobs
+1. **Main Script**
+   Launches multiple ffmpeg jobs in parallel (up to MAX_JOBS).
+   For each input file, creates a named FIFO (progress.XYZ) for ffmpeg's progress output.
 
-Each ffmpeg process encodes a file and outputs progress info (with -progress <fifo>) to its unique FIFO.
-Monitor Processes
+2. **ffmpeg Jobs**
+   Each ffmpeg process encodes a file and outputs progress info (with -progress <fifo>) to its unique FIFO.
 
-For each ffmpeg job, a monitor process reads from the respective FIFO.
-It parses the progress and writes standardized lines (time, status, filename) to the global status FIFO.
-Global FIFO (status)
+3. **Monitor Processes**
+   For each ffmpeg job, a monitor process reads from the respective FIFO.
+   It parses the progress and writes standardized lines (time, status, filename) to the global status FIFO.
 
-All monitor processes write to a single status FIFO (status.XXXXXX).
-Progress Bar Printer
+4. **Global FIFO (status)**
+   All monitor processes write to a single status FIFO (status.XXXXXX).
 
-The main script runs a background process that reads from the global status FIFO.
-It aggregates progress across all files and updates a single, global progress bar in the terminal.
-Summary:
+5. **Progress Bar Printer**
+   The main script runs a background process that reads from the global status FIFO.
+   It aggregates progress across all files and updates a single, global progress bar in the terminal.
 
-Each ffmpeg job has its own progress FIFO and monitor.
-All monitors feed updates into a single global FIFO.
-The progress bar printer reads the global FIFO and updates the terminal.
+**Summary:**
+- Each ffmpeg job has its own progress FIFO and monitor.
+- All monitors feed updates into a single global FIFO.
+- The progress bar printer reads the global FIFO and updates the terminal.
