@@ -47,7 +47,7 @@ This file, reencode.sh, is a comprehensive Bash script designed to batch re-enco
 - Users who want an easy way to prepare large libraries of MKV files for Plex, especially with HDR content and normalized audio.
 - Anyone needing a robust, parallel, and automated video batch processor with safe shutdown and progress reporting.
 
-<img src="./reencode.svg" alt="Flow for progress reporting in the script>
+<img src="./reencode.svg" alt="Flow for progress reporting in the script">
 
 ```
                         +------------------+
