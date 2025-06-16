@@ -156,7 +156,7 @@ determine_audio_filter_params() {
     local use_two_pass_flag="$2"
     local -n _audio_filter_ref="$3" # Nameref to the caller's array
 
-    _audio_filter_ref=("-map" "0:a" "-c:a" "copy")
+    _audio_filter_ref=("-map" "'0:a?'" "-c:a" "copy")
 
     # Find number of audio streams
     local audio_streams_count
@@ -211,7 +211,11 @@ monitor_progress() {
             # Handle ffmpeg progress updates
             *out_time_us=*)
                 time_sec=${line#*=}
-                time_sec=$((time_sec / 1000000))
+                if [[ -z "${time_sec//[0-9]}" ]]; then
+                    time_sec=$((time_sec / 1000000))
+                else
+                    time_sec=0 # Reset if not a valid number
+                fi
                 ;;
             *progress=*)
                 local status=${line#*=}
@@ -265,7 +269,7 @@ process_file() {
     # Start monitoring progress in the background
     monitor_progress "$progress_fifo_name" "$input_file" &
 
-    # Encoding command - stderr preserved for stats visibility
+    # Encoding command - stderr preserved for error messages
     ffmpeg -nostdin -loglevel error -hide_banner -y \
         -progress "$progress_fifo_name" \
         -stats_period 5 \
@@ -284,13 +288,6 @@ process_file() {
     # Release semaphore token when job completes
     release_token
 
-    # if [[ $ffmpeg_exit_code -eq 0 ]]; then
-    #     printf "✅ Completed: %s\n" "$input_file"
-    # elif [[ -f "$SHUTTING_DOWN_FLAG_FILE" ]]; then # Check if failure was due to shutdown
-    #     printf "⏹️ Interrupted: %s\n" "$input_file" >&2
-    # else
-    #     printf "❌ Failed: %s (ffmpeg exit code: %s)\n" "$input_file" "$ffmpeg_exit_code" >&2
-    # fi
     return $ffmpeg_exit_code
 }
 
@@ -410,7 +407,7 @@ print_progress_bar() {
     done
 
     local partial_block=""
-    if ((partial_block_index >= 0 && partial_block_index < 8)); then
+    if ((partial_block_index > 0 && partial_block_index < 8)); then
         # Add the partial block if there is a remainder
         partial_block="${blocks[partial_block_index]}"
     fi
@@ -484,7 +481,6 @@ print_status() {
 main() {
     parse_script_arguments "$@"
     prepare_file_list
-    local empty_array=()
     construct_extra_text extra_text 0 0 ${#expanded_files[@]}
     print_progress_bar 0 1 "$extra_text"
     calculate_total_duration total_duration_secs
@@ -503,7 +499,7 @@ main() {
     print_status $total_duration_secs & # Start status printing in the background
     wait "${encoding_job_pids[@]}" # Wait for all encoding jobs to finish
     exec 4>&- # Close the status FIFO
-    printf "🎉 All conversions completed!\n"
+    printf "\n🎉 All conversions completed!\n"
 }
 
 # Set up cleanup trap - exit with exit code 0 on normal exit, 1 on error
