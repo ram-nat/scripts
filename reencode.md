@@ -46,3 +46,38 @@ This file, reencode.sh, is a comprehensive Bash script designed to batch re-enco
 **Who is it for?**
 - Users who want an easy way to prepare large libraries of MKV files for Plex, especially with HDR content and normalized audio.
 - Anyone needing a robust, parallel, and automated video batch processor with safe shutdown and progress reporting.
+
+                        +------------------+
+                        |   Main Script    |
+                        +--------+---------+
+                                 |
+               +----------------+------------------+
+               |                |                  |
+        +------+------+   +-----+------+    +------+------+
+        | ffmpeg Job 1 |   | ffmpeg Job 2 |  ...  | ffmpeg Job N |
+        +------+------+   +-----+------+    +------+------+
+               |                |                  |
+     (writes to FIFO)   (writes to FIFO)   (writes to FIFO)
+      progress.XXXXXX     progress.YYYYYY     progress.ZZZZZZ
+               |                |                  |
+        +------+------+   +-----+------+    +------+------+
+        | Monitor 1   |   | Monitor 2   |  ...  | Monitor N   |
+        +------+------+   +-----+------+    +------+------+
+               |                |                  |
+      (each reads progress FIFO,
+         parses progress, and writes
+         status lines to global FIFO)
+               \                |                  /
+                \               |                 /
+                 \              |                /
+                 +--------------+---------------+
+                                |
+                         +------+------+
+                         | Global FIFO |
+                         | (status)    |
+                         +------+------+
+                                |
+                        +-------+------+
+                        | Progress Bar |
+                        |  Printer     |
+                        +--------------+
