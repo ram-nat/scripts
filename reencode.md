@@ -1,53 +1,48 @@
-This file, reencode.sh, is a Zsh shell script designed for batch re-encoding of MKV video files, with a focus on making them compatible with Plex while preserving HDR (High Dynamic Range) metadata and normalizing the AC3 audio track.
+This file, reencode.sh, is a comprehensive Bash script designed to batch re-encode MKV video files for Plex, with a strong focus on:
 
-### Key Features
+- Preserving HDR video metadata and compatibility.
+- Normalizing audio (AC3) using EBU R128 loudness standards, with optional two-pass normalization for better accuracy.
+- Efficient parallel processing (up to 4 simultaneous jobs by default).
+- Detailed progress reporting with a colorized progress bar.
+- Robust error handling and clean resource management.
 
-- **Batch Processing:**  
-  Accepts one or more MKV files, or a directory containing MKV files, and processes them all.
+**Key Features:**
 
-- **Parallelization (Semaphore Control):**  
-  Uses a custom semaphore mechanism to limit the number of concurrent ffmpeg jobs (default: 4), which is important for hardware-accelerated encoding on NVIDIA GPUs that have session limits.
+1. **Batch Processing:**  
+   You can provide individual MKV files or an entire directory. The script will find all .mkv files and process them.
 
-- **HDR Preservation:**  
-  Detects if the input video is HDR (HDR10/PQ or HLG) using ffprobe, and passes appropriate color metadata and pixel format options to ffmpeg to preserve HDR in the output.
+2. **HDR Handling:**  
+   The script uses ffprobe to detect HDR and video color characteristics, passing the correct parameters to ffmpeg so HDR metadata is preserved in the output.
 
-- **Audio Normalization:**  
-  Normalizes the first audio track to broadcast loudness standards using ffmpeg's loudnorm filter.  
-  Supports optional two-pass normalization (with --two-pass), which is more accurate.
+3. **Audio Normalization:**  
+   By default, it normalizes audio in a single pass. With the --two-pass flag, it runs a two-pass normalization for more precise loudness adjustment. The normalized track is encoded as AC3 at 640kbps.
 
-- **Dual Audio Tracks:**  
-  The output MKV contains both the original audio (copied) and a normalized AC3 audio track at 640k bitrate.
+4. **Parallelism with Semaphore:**  
+   Up to 4 files are processed at once (configurable via MAX_JOBS). The script uses a FIFO-based semaphore to manage concurrency safely.
 
-- **Graceful Shutdown and Cleanup:**  
-  Handles interrupts (Ctrl+C) and cleans up temporary files, semaphore FIFOs, and terminates child jobs properly.
+5. **Progress Reporting:**  
+   It creates named pipes to collect progress from ffmpeg for each job and displays a live, colorized progress bar with spinner, showing completed, in-progress, queued, and finished files.
 
-- **Usage Example:**  
-  ```
-  ./reencode.sh [--two-pass] input1.mkv input2.mkv ...
-  ./reencode.sh [--two-pass] /path/to/directory/
-  ```
+6. **Graceful Shutdown & Cleanup:**  
+   Handles interrupts (Ctrl+C) and ensures all child processes are terminated, pipes and temp files are cleaned, and no jobs are left hanging.
 
-### Workflow Summary
+7. **Dependency Checks:**  
+   Requires ffmpeg, ffprobe, and jq (for JSON parsing).
 
-1. **Checks for required dependencies** (ffmpeg and ffprobe).
-2. **Parses input arguments** for files/directories and --two-pass option.
-3. **Expands directories** into lists of MKV files.
-4. **Initializes a semaphore** to control parallel jobs.
-5. **For each file:**
-   - Detects video color properties for HDR handling.
-   - Runs ffmpeg to:
-     - Hardware-decode the video and re-encode with NVENC (HEVC).
-     - Copy the original audio and add a loudness-normalized AC3 audio track.
-     - Copy subtitles.
-     - Preserve HDR/SDR color metadata.
-6. **Runs jobs in the background** up to the max limit, showing status and final results.
+8. **Command-Line Usage:**  
+   ```
+   ./reencode.sh [--two-pass] file1.mkv file2.mkv ...
+   ./reencode.sh [--two-pass] /path/to/directory/
+   ```
 
-### When to Use
+**Typical Workflow:**
+- You call the script with MKV files or a directory.
+- It checks for dependencies.
+- It expands the file list, calculates total duration, and initializes semaphores.
+- For each file, it determines HDR and audio parameters, then calls ffmpeg to re-encode.
+- Progress for each file is tracked and shown in real time.
+- It cleans up all resources, even on interruption.
 
-- Preparing a library of MKV files for Plex streaming, especially when you want:
-  - Hardware-accelerated encoding (NVIDIA GPU required).
-  - HDR video preservation.
-  - Proper, consistent loudness in audio tracks.
-  - Efficient batch processing with controlled concurrency.
-
-If you have specific questions about how parts of the script work, or need usage advice, let me know!
+**Who is it for?**
+- Users who want an easy way to prepare large libraries of MKV files for Plex, especially with HDR content and normalized audio.
+- Anyone needing a robust, parallel, and automated video batch processor with safe shutdown and progress reporting.
