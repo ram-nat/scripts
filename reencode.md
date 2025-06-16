@@ -49,43 +49,6 @@ This file, reencode.sh, is a comprehensive Bash script designed to batch re-enco
 
 <img src="./reencode.svg" alt="Flow for progress reporting in the script">
 
-```
-                        +------------------+
-                        |   Main Script    |
-                        +--------+---------+
-                                 |
-               +----------------+------------------+
-               |                |                  |
-        +------+------+   +-----+------+    +------+------+
-        | ffmpeg Job 1 |   | ffmpeg Job 2 |  ...  | ffmpeg Job N |
-        +------+------+   +-----+------+    +------+------+
-               |                |                  |
-     (writes to FIFO)   (writes to FIFO)   (writes to FIFO)
-      progress.XXXXXX     progress.YYYYYY     progress.ZZZZZZ
-               |                |                  |
-        +------+------+   +-----+------+    +------+------+
-        | Monitor 1   |   | Monitor 2   |  ...  | Monitor N   |
-        +------+------+   +-----+------+    +------+------+
-               |                |                  |
-      (each reads progress FIFO,
-         parses progress, and writes
-         status lines to global FIFO)
-               \                |                  /
-                \               |                 /
-                 \              |                /
-                 +--------------+---------------+
-                                |
-                         +------+------+
-                         | Global FIFO |
-                         | (status)    |
-                         +------+------+
-                                |
-                        +-------+------+
-                        | Progress Bar |
-                        |  Printer     |
-                        +--------------+
-```
-
 **How it works:**
 
 1. **Main Script**
