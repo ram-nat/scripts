@@ -9,8 +9,15 @@ if [ ! -d "${app_backup_dir}" ]; then
 fi
 
 for file in "$app_dir"/msedge-*; do
-  cp "${file}" "${app_backup_dir}/"
   filename=$(basename "$file")
+
+  if [[ "$filename" == msedge-_* ]]; then
+    echo "Skipping already fixed file: $filename"
+    continue
+  fi
+
+  echo "Fixing ${filename}"
+  cp "${file}" "${app_backup_dir}/"
   rest="${filename#msedge-}"
   rest="${rest%%.*}"
   new_filename="msedge-_${rest}.desktop"
