@@ -17,9 +17,9 @@ def notify(message):
     subprocess.run(["notify-send", "-t", "1000", "Whisper", message])
 
 def start_recording():
-    # 1. Create lock
+    # 1. Create lock file immediately (with placeholder)
     with open(LOCK_FILE, "w") as f:
-        f.write(str(os.getpid()))
+        f.write("pending")
     
     notify("Recording... (Press again to stop)")
     
@@ -30,6 +30,11 @@ def start_recording():
     try:
         # We use Popen so we can wait specifically for this process
         process = subprocess.Popen(cmd)
+        
+        # Update lock file with the actual arecord PID
+        with open(LOCK_FILE, "w") as f:
+            f.write(str(process.pid))
+        
         process.wait()
     except KeyboardInterrupt:
         pass
@@ -94,10 +99,22 @@ def main():
         # --- STOP SIGNAL ---
         print("🛑 Stop signal received. Finishing recording...")
         
-        # Send SIGINT (Ctrl+C) to arecord to make it save the file properly
-        os.system("pkill -SIGINT arecord")
+        # Read the PID of the arecord process we started
+        try:
+            with open(LOCK_FILE, "r") as f:
+                arecord_pid = int(f.read().strip())
+            
+            # Send SIGINT (Ctrl+C) to our specific arecord process to make it save the file properly
+            os.kill(arecord_pid, signal.SIGINT)
+        except (FileNotFoundError, ProcessLookupError):
+            # Process is dead or lock file gone — stale state, fall through to cleanup
+            pass
+        except ValueError:
+            # PID not ready yet (race condition) — leave lock file, let user retry
+            print("⚠️ Recording still starting, try again in a moment")
+            return
         
-        # Clean up lock
+        # Clean up lock (only reached on success or stale state)
         if os.path.exists(LOCK_FILE):
             os.remove(LOCK_FILE)
     else:
