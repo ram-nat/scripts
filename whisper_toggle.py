@@ -20,24 +20,34 @@ def start_recording():
     # 1. Create lock file immediately (with placeholder)
     with open(LOCK_FILE, "w") as f:
         f.write("pending")
-    
+
     notify("Recording... (Press again to stop)")
-    
+
     # 2. Record using arecord
     # -q: Quiet mode
     cmd = ["arecord", "-f", "S16_LE", "-c", "1", "-r", "16000", "-q", AUDIO_FILE]
-    
+
+    # We use Popen so we can wait specifically for this process
+    process = subprocess.Popen(cmd)
+
     try:
-        # We use Popen so we can wait specifically for this process
-        process = subprocess.Popen(cmd)
-        
         # Update lock file with the actual arecord PID
+        # RC-2: if this write fails, terminate arecord before propagating
         with open(LOCK_FILE, "w") as f:
             f.write(str(process.pid))
-        
+    except OSError:
+        process.terminate()
+        process.wait()
+        raise
+
+    try:
         process.wait()
     except KeyboardInterrupt:
-        pass
+        # RC-1: Python wrapper was interrupted directly (e.g. kill -INT on the
+        # Python PID, not the whole process group).  arecord is still running —
+        # kill it explicitly so it doesn't become an orphan.
+        process.terminate()
+        process.wait()
 
 def stop_and_transcribe():
     # 1. STOPPING
@@ -110,9 +120,22 @@ def main():
             # Process is dead or lock file gone — stale state, fall through to cleanup
             pass
         except ValueError:
-            # PID not ready yet (race condition) — leave lock file, let user retry
-            print("⚠️ Recording still starting, try again in a moment")
-            return
+            # RC-3: "pending" race — PID not written yet; spin-wait briefly for it.
+            # The first invocation needs only a few ms to write the real PID after Popen.
+            deadline = time.monotonic() + 1.0
+            arecord_pid = None
+            while time.monotonic() < deadline:
+                time.sleep(0.05)
+                try:
+                    with open(LOCK_FILE, "r") as f:
+                        arecord_pid = int(f.read().strip())
+                    os.kill(arecord_pid, signal.SIGINT)
+                    break
+                except (ValueError, FileNotFoundError, ProcessLookupError):
+                    pass
+            if arecord_pid is None:
+                print("⚠️ Could not stop recording; please try again.")
+                return
         
         # Clean up lock (only reached on success or stale state)
         if os.path.exists(LOCK_FILE):
